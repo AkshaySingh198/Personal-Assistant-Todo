@@ -2,109 +2,91 @@ import webpush from 'web-push';
 import { Task } from '../models/Task.model.js';
 import { User } from '../models/User.model.js';
 
-// Map to track active timeouts for reminder starts
+// Map to track active timeouts (kept for fallback compatibility)
 const scheduledRemindersMap = new Map();
 
 /**
- * Recursive snooze loop that runs every 5 minutes until a task is marked complete
- * @param {string} taskId 
+ * Main stateless engine that queries the database for due tasks
+ * and triggers push notifications if they haven't been sent.
  */
-export const triggerSnoozeNotificationLoop = async (taskId) => {
+export const checkAndTriggerDueReminders = async () => {
   try {
-    const task = await Task.findById(taskId);
-    if (!task) {
-      console.log(`[Snooze] Task ${taskId} not found. Terminating snooze loop.`);
-      return;
-    }
-
-    if (task.isCompleted) {
-      console.log(`[Snooze] Task "${task.title}" (${taskId}) is completed. Snooze loop terminated.`);
-      return;
-    }
-
-    const user = await User.findById(task.userId);
-    if (!user || !user.pushSubscription) {
-      console.log(`[Snooze] User or push subscription missing for task "${task.title}". Terminating snooze loop.`);
-      return;
-    }
-
-    // Sound file config
-    const soundUrl = '/sounds/custom-alert.wav';
-
-    // Construct the payload
-    const payload = JSON.stringify({
-      taskId: task._id,
-      title: `🚨 Urgent Task Reminder`,
-      body: `Your task "${task.title}" is pending!`,
-      soundUrl
+    const now = new Date();
+    
+    // Find all incomplete tasks that have a due date and time
+    const incompleteTasks = await Task.find({
+      isCompleted: false,
+      dueDate: { $ne: null },
+      dueTime: { $ne: null }
     });
 
-    console.log(`[Snooze] Sending alert for task: "${task.title}".`);
-    
-    await webpush.sendNotification(user.pushSubscription, payload).catch(err => {
-      console.error(`[Snooze] Failed sending push notification for task ${task.title}:`, err);
-    });
+    console.log(`[Reminder Engine] Checking ${incompleteTasks.length} incomplete tasks for due reminders...`);
 
-    // Schedule next reminder iteration in 5 minutes (300,000ms)
-    // For testing/easy demonstration, we will use 1 minute (60,000ms) if process.env.NODE_ENV === 'development' or 5 mins
-    const delay = process.env.NODE_ENV === 'development' ? 60 * 1000 : 5 * 60 * 1000;
-    
-    setTimeout(() => {
-      triggerSnoozeNotificationLoop(taskId);
-    }, delay);
+    for (const task of incompleteTasks) {
+      try {
+        // Parse target due date-time
+        const dateStr = task.dueDate.toISOString().split('T')[0];
+        const targetDate = new Date(`${dateStr}T${task.dueTime}:00`);
 
+        // Check if current time is past or equal to target due date-time
+        if (now >= targetDate) {
+          // Nagging interval: 1 minute in development, 5 minutes in production
+          const intervalMs = process.env.NODE_ENV === 'development' ? 60 * 1000 : 5 * 60 * 1000;
+          const timeSinceLastReminder = task.lastReminderSentAt 
+            ? now - new Date(task.lastReminderSentAt) 
+            : Infinity;
+
+          if (timeSinceLastReminder >= intervalMs) {
+            const user = await User.findById(task.userId);
+            if (user && user.pushSubscription) {
+              const soundUrl = '/sounds/custom-alert.wav';
+              const payload = JSON.stringify({
+                taskId: task._id,
+                title: `🚨 Urgent Task Reminder`,
+                body: `Your task "${task.title}" is pending!`,
+                soundUrl
+              });
+
+              console.log(`[Reminder Engine] Sending push notification for task "${task.title}" to user ${user.name}`);
+              
+              await webpush.sendNotification(user.pushSubscription, payload);
+              
+              // Update lastReminderSentAt in the DB
+              task.lastReminderSentAt = now;
+              await task.save();
+            } else {
+              console.log(`[Reminder Engine] User or push subscription missing for task "${task.title}".`);
+            }
+          }
+        }
+      } catch (err) {
+        console.error(`[Reminder Engine] Error processing task ${task._id}:`, err);
+      }
+    }
   } catch (error) {
-    console.error(`[Snooze] Error in snooze loop for task ${taskId}:`, error);
+    console.error(`[Reminder Engine] General error checking due reminders:`, error);
   }
 };
 
 /**
- * Schedule a task snooze loop to trigger at its due time
- * @param {object} task 
+ * Compat/Fallback helper. Runs the stateless reminder check immediately.
  */
-export const scheduleTaskReminder = (task) => {
-  if (!task.dueDate || !task.dueTime) return;
-
-  const taskIdStr = task._id.toString();
-
-  // Cancel any existing scheduled reminder for this task
-  if (scheduledRemindersMap.has(taskIdStr)) {
-    clearTimeout(scheduledRemindersMap.get(taskIdStr));
-    scheduledRemindersMap.delete(taskIdStr);
-  }
-
-  // Calculate target date-time
-  const dateStr = task.dueDate.toISOString().split('T')[0];
-  const targetDate = new Date(`${dateStr}T${task.dueTime}:00`);
-  const now = new Date();
-
-  const msUntilDue = targetDate.getTime() - now.getTime();
-
-  if (msUntilDue > 0) {
-    console.log(`[Scheduler] Scheduling reminder for task "${task.title}" in ${Math.round(msUntilDue / 1000 / 60)} minutes.`);
-    
-    const timeoutId = setTimeout(() => {
-      triggerSnoozeNotificationLoop(task._id);
-      scheduledRemindersMap.delete(taskIdStr);
-    }, msUntilDue);
-
-    scheduledRemindersMap.set(taskIdStr, timeoutId);
-  } else if (Math.abs(msUntilDue) < 15 * 60 * 1000 && !task.isCompleted) {
-    // If it's overdue by less than 15 minutes and not completed, trigger snooze loop immediately
-    console.log(`[Scheduler] Task "${task.title}" is overdue. Launching snooze loop immediately.`);
-    triggerSnoozeNotificationLoop(task._id);
-  }
+export const scheduleTaskReminder = async (task) => {
+  console.log(`[Scheduler] Checking reminders due to task creation/update for "${task.title}"`);
+  // Trigger stateless check immediately to see if any reminder is pending
+  checkAndTriggerDueReminders();
 };
 
 /**
- * Cancel a scheduled reminder timeout
- * @param {string} taskId 
+ * Compat/Fallback helper.
  */
 export const cancelTaskReminder = (taskId) => {
-  const taskIdStr = taskId.toString();
-  if (scheduledRemindersMap.has(taskIdStr)) {
-    clearTimeout(scheduledRemindersMap.get(taskIdStr));
-    scheduledRemindersMap.delete(taskIdStr);
-    console.log(`[Scheduler] Cancelled scheduled reminder for task ${taskIdStr}`);
-  }
+  console.log(`[Scheduler] Request to cancel reminder for task ${taskId}`);
 };
+
+// Start in-memory backup interval that runs every 1 minute
+// This keeps the engine warm as long as the server container is running
+setInterval(() => {
+  console.log('[Interval Checker] Triggering periodic check for reminders...');
+  checkAndTriggerDueReminders();
+}, 60 * 1000);

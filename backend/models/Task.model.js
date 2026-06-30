@@ -32,6 +32,9 @@ const TaskSchema = new mongoose.Schema({
     type: Boolean,
     default: false,
   },
+  lastReminderSentAt: {
+    type: Date,
+  },
   collaborators: [{
     type: String, // Email addresses of collaborators
   }],

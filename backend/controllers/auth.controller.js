@@ -1,6 +1,7 @@
 import jwt from 'jsonwebtoken';
 import { User } from '../models/User.model.js';
 import { hashPassword, verifyPassword } from '../utils/hash.js';
+import webpush from 'web-push';
 
 const generateToken = (id) => {
   return jwt.sign({ id }, process.env.JWT_SECRET || 'jwt_fallback_secret_key', {
@@ -132,6 +133,27 @@ export const saveSubscription = async (req, res) => {
     await user.save();
 
     res.status(200).json({ message: 'Push subscription saved successfully' });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+export const testPushNotification = async (req, res) => {
+  try {
+    const user = await User.findById(req.user._id);
+    if (!user || !user.pushSubscription) {
+      return res.status(400).json({ message: 'No push subscription found on server for this user.' });
+    }
+
+    const payload = JSON.stringify({
+      title: 'Test Notification 🤖',
+      body: 'If you see this, push notifications are working perfectly on Google Cloud Run!',
+      soundUrl: '/sounds/custom-alert.wav',
+      taskId: 'test-push-id'
+    });
+
+    await webpush.sendNotification(user.pushSubscription, payload);
+    res.status(200).json({ message: 'Test push notification sent successfully.' });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }

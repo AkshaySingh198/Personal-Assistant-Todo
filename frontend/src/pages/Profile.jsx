@@ -130,6 +130,18 @@ const Profile = ({ API_URL, user, onUserUpdated }) => {
     }
   };
 
+  const handleTestPush = async () => {
+    setStatus('');
+    setSuccess('');
+    try {
+      const res = await axios.post(`${API_URL}/api/auth/test-push`, {}, { withCredentials: true });
+      setSuccess(res.data.message || "Test push notification sent!");
+    } catch (err) {
+      console.error(err);
+      setStatus(err.response?.data?.message || "Failed to send test push notification. Make sure you enable notifications first.");
+    }
+  };
+
   // Google OAuth redirect
   const handleLinkGoogle = async () => {
     setIsLinkingGoogle(true);
@@ -242,8 +254,11 @@ const Profile = ({ API_URL, user, onUserUpdated }) => {
             <p style={{ fontSize: '0.85rem', marginBottom: '16px' }}>
               Receive alerts for daily check-ins and high-priority alarms with repeating snoozes.
             </p>
-            <button className="btn btn-secondary" onClick={handleEnablePush} style={{ width: '100%' }}>
+            <button className="btn btn-secondary" onClick={handleEnablePush} style={{ width: '100%', marginBottom: '10px' }}>
               Enable Daily Check-Ins
+            </button>
+            <button className="btn btn-primary" onClick={handleTestPush} style={{ width: '100%', background: 'var(--accent-teal-glow)', borderColor: 'var(--accent-teal)', color: 'var(--accent-teal)' }}>
+              Send Test Notification
             </button>
           </div>
 

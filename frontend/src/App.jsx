@@ -8,7 +8,9 @@ import TasksList from './components/TasksList';
 import CalendarFeed from './components/CalendarFeed';
 import Profile from './pages/Profile';
 
-const API_URL = 'http://localhost:5000'; // Backend URL
+const API_URL = window.location.origin === 'http://localhost:5173'
+  ? 'http://localhost:5000'
+  : window.location.origin;
 
 function App() {
   const [user, setUser] = useState(null);

@@ -9,6 +9,7 @@ import {
   logout,
   saveOnboarding,
   saveSubscription,
+  testPushNotification,
   getProfile,
   updateProfile
 } from '../controllers/auth.controller.js';
@@ -31,7 +32,7 @@ import {
   createGoogleCalendarEvent,
   updateGoogleCalendarEvent
 } from '../controllers/googleCalendar.controller.js';
-import { scheduleTaskReminder, cancelTaskReminder } from '../workers/reminderEngine.js';
+import { scheduleTaskReminder, cancelTaskReminder, checkAndTriggerDueReminders } from '../workers/reminderEngine.js';
 
 const router = express.Router();
 
@@ -65,6 +66,7 @@ router.get('/auth/profile', protect, getProfile);
 router.put('/auth/profile', protect, updateProfile);
 router.post('/auth/onboarding', protect, saveOnboarding);
 router.post('/auth/subscription', protect, saveSubscription);
+router.post('/auth/test-push', protect, testPushNotification);
 router.get('/auth/vapid-key', protect, (req, res) => {
   res.status(200).json({ publicKey: process.env.PUBLIC_VAPID_KEY });
 });
@@ -81,6 +83,15 @@ router.post('/tasks', protect, upload.array('files', 5), async (req, res, next) 
 router.get('/tasks', protect, getTasks);
 router.get('/tasks/calendar-feed', protect, getCalendarFeed);
 router.get('/tasks/check-previous-day', protect, checkPreviousDayTasks);
+router.get('/tasks/process-reminders', async (req, res) => {
+  try {
+    await checkAndTriggerDueReminders();
+    res.status(200).json({ status: 'success', message: 'Checked and triggered due reminders.' });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 router.post('/tasks/rollover', protect, rolloverTasksToToday);
 
 router.patch('/tasks/:id', protect, upload.array('files', 5), async (req, res, next) => {

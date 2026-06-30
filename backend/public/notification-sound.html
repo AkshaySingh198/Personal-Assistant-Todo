@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta name="theme-color" content="#000000">
+  <style>
+    body { 
+      background: #000; 
+      margin: 0; 
+      width: 1px; 
+      height: 1px; 
+      overflow: hidden; 
+    }
+  </style>
+</head>
+<body>
+<script>
+  const params = new URLSearchParams(window.location.search);
+  const src = params.get('src') || '/sounds/custom-alert.wav';
+
+  const audio = new Audio(src);
+  audio.volume = 1.0;
+
+  audio.play()
+    .then(() => {
+      audio.addEventListener('ended', () => window.close());
+      // Failsafe close after 30s
+      setTimeout(() => window.close(), 30000);
+    })
+    .catch(() => {
+      // Autoplay blocked — browser requires prior user interaction
+      // Nothing we can do in this case; window closes silently
+      window.close();
+    });
+</script>
+</body>
+</html>

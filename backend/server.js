@@ -3,6 +3,7 @@ import dotenv from 'dotenv';
 import cors from 'cors';
 import cookieParser from 'cookie-parser';
 import path from 'path';
+import fs from 'fs';
 import { fileURLToPath } from 'url';
 import { connectDB } from './config/db.js';
 import apiRoutes from './routes/api.js';
@@ -41,11 +42,36 @@ app.get('/health', (req, res) => {
   res.status(200).json({ status: 'ok', time: new Date() });
 });
 
+// Serve frontend static files in production
+app.use(express.static(path.join(__dirname, 'public')));
+
+// Catch-all to serve index.html for SPA routing (React Router)
+app.get('*', (req, res, next) => {
+  if (req.path.startsWith('/api') || req.path.startsWith('/uploads')) {
+    return next();
+  }
+  res.sendFile(path.join(__dirname, 'public', 'index.html'));
+});
+
 // Start Server & Connect Database
 const startServer = async () => {
   try {
     await connectDB();
     
+    // Debug directory structure on Cloud Run
+    const publicPath = path.join(__dirname, 'public');
+    if (fs.existsSync(publicPath)) {
+      console.log(`[Startup] public folder exists. Contents:`, fs.readdirSync(publicPath));
+      const assetsPath = path.join(publicPath, 'assets');
+      if (fs.existsSync(assetsPath)) {
+        console.log(`[Startup] public/assets folder exists. Contents:`, fs.readdirSync(assetsPath));
+      } else {
+        console.log(`[Startup] public/assets folder does NOT exist!`);
+      }
+    } else {
+      console.log(`[Startup] public folder does NOT exist at ${publicPath}!`);
+    }
+
     // Initialize Web Push details
     initWebPush();
     
